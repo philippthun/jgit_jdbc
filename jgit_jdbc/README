@@ -1,0 +1,65 @@
+com.sap.poc.jgit.storage.jdbc
+-----------------------------
+
+This package is a prototypical implementation (proof of concept, thus packaged
+in com.sap.poc) of the (not final) org.eclipse.jgit.storage.dht.spi interface.
+It binds JGit's generic DHT storage to JDBC.
+
+The code is based on patch set 5 of Shawn Pearce's JGit change "RFC Store Git on
+any DHT" (http://egit.eclipse.org/r/2295). Furthermore Shawn's JGit DHT storage
+implementations for Apache Cassandra (https://github.com/spearce/jgit_cassandra)
+and Apache HBase (https://github.com/spearce/jgit_hbase) have been used as
+'reference implementations'.
+
+This is the first working version; it is very primitive, but has been
+successfully tested on a PostgreSQL database (version 9.0.3-1). As a test
+repository, JGit itself was pushed and cloned.
+
+Here are the steps to try it out:
+
+1. Download and install database software
+
+2. Start database server
+      e.g. PostgreSQL:
+        initdb -D <...>/data -E UNICODE
+        postgres -D <...>/data
+
+3. Create database
+      e.g. PostgreSQL:
+        createdb <database>
+
+4. Download JDBC driver
+
+5. Copy driver to JRE's lib/ext directory
+
+6. Build jgit-jdbc.jar
+
+7. Create schema
+      java -Djdbc.drivers=<fully-qualified-class-names> -jar jgit-jdbc.jar \
+        jdbc-create-schema git+jdbc+<vendor>://<host>:<port>/<database>
+
+      e.g. PostgreSQL on localhost:
+        java -Djdbc.drivers=org.postgresql.Driver -jar jgit-jdbc.jar \
+          jdbc-create-schema git+jdbc+postgresql://localhost:5432/<database>
+
+8. Initialize repository
+      java -Djdbc.drivers=<fully-qualified-class-names> -jar jgit-jdbc.jar \
+        jdbc-init git+jdbc+<vendor>://<host>:<port>/<database>/<repository>.git
+
+      e.g. PostgreSQL on localhost:
+        java -Djdbc.drivers=org.postgresql.Driver -jar jgit-jdbc.jar jdbc-init \
+          git+jdbc+postgresql://localhost:5432/<database>/<repository>.git
+
+9. Start JGit daemon (with 800M)
+      java -Xmx800m -jar jgit-jdbc.jar jdbc-daemon --enable receive-pack \
+        git+jdbc+<vendor>://<host>:<port>/<database>/<repository>.git
+
+      e.g. PostgreSQL on localhost:
+        java -Xmx800m -jar jgit-jdbc.jar jdbc-daemon --enable receive-pack \
+          git+jdbc+postgresql://localhost:5432/<database>/<repository>.git
+
+10. Push
+       git push git://<host>/<repository>.git master
+
+11. Clone
+       git clone git://<host>/<repository>.git

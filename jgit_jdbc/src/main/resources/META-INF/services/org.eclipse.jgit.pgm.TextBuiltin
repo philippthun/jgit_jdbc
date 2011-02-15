@@ -1,0 +1,3 @@
+com.sap.poc.jgit.storage.jdbc.pgm.JdbcCreateSchema
+com.sap.poc.jgit.storage.jdbc.pgm.JdbcDaemon
+com.sap.poc.jgit.storage.jdbc.pgm.JdbcInit
