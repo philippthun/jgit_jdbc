@@ -3,6 +3,7 @@
  */
 package com.sap.poc.jgit.storage.jdbc;
 
+import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -31,17 +32,33 @@ public class JdbcObjectIndexTable implements ObjectIndexTable {
 
 	@Override
 	public void get(
-			Context options,
+			final Context options,
 			final Set<ObjectIndexKey> objects,
 			final AsyncCallback<Map<ObjectIndexKey, Collection<ObjectInfo>>> callback) {
-		final Map<ObjectIndexKey, Collection<ObjectInfo>> objectMap = new HashMap<ObjectIndexKey, Collection<ObjectInfo>>();
+		database.getExecutorService().submit(new Runnable() {
+			@Override
+			public void run() {
+				try {
+					callback.onSuccess(getObjectInfos(options, objects));
+				} catch (SQLException e) {
+					callback.onFailure(new DhtException(e));
+				}
+			}
+		});
+	}
+
+	private Map<ObjectIndexKey, Collection<ObjectInfo>> getObjectInfos(
+			Context options, final Set<ObjectIndexKey> objects)
+			throws SQLException {
+		Connection conn = null;
 		try {
+			final Map<ObjectIndexKey, Collection<ObjectInfo>> objectInfoMap = new HashMap<ObjectIndexKey, Collection<ObjectInfo>>();
 			if (objects != null)
 				for (ObjectIndexKey object : objects) {
 					final String dbKey = Base64.encodeBytes(object.toBytes());
 
-					final Statement statement = database.getConnection()
-							.createStatement();
+					conn = database.getConnection();
+					final Statement statement = conn.createStatement();
 					final String sql = "SELECT oi_object_key, oi_object_info FROM object_index WHERE oi_key = '"
 							+ dbKey + "'";
 					System.out.println("-----");
@@ -61,30 +78,20 @@ public class JdbcObjectIndexTable implements ObjectIndexTable {
 										.fromBytes(Base64.decode(objectKey)),
 										Base64.decode(objectInfo), -1));
 						}
-						objectMap.put(object, infoList);
+						objectInfoMap.put(object, infoList);
 					}
 				}
-		} catch (final SQLException e) {
-			database.getExecutorService().submit(new Runnable() {
-				@Override
-				public void run() {
-					callback.onFailure(new DhtException(e));
-				}
-			});
+			return objectInfoMap;
+		} finally {
+			JdbcDatabase.closeConnection(conn);
 		}
-
-		database.getExecutorService().submit(new Runnable() {
-			@Override
-			public void run() {
-				callback.onSuccess(objectMap);
-			}
-		});
 	}
 
 	@Override
 	public void add(final ObjectIndexKey objId, final ObjectInfo info,
 			WriteBuffer buffer) throws DhtException {
 		// TODO use buffer
+		Connection conn = null;
 		try {
 			if (objId != null && info != null) {
 				final String dbKey = Base64.encodeBytes(objId.toBytes());
@@ -92,8 +99,8 @@ public class JdbcObjectIndexTable implements ObjectIndexTable {
 						.getChunkKey().toBytes());
 				final String dbObjectInfo = Base64.encodeBytes(info.toBytes());
 
-				final Statement statement = database.getConnection()
-						.createStatement();
+				conn = database.getConnection();
+				final Statement statement = conn.createStatement();
 				final String sql = "INSERT INTO object_index (oi_key, oi_object_key, oi_object_info) VALUES ('"
 						+ dbKey
 						+ "', '"
@@ -107,28 +114,33 @@ public class JdbcObjectIndexTable implements ObjectIndexTable {
 			}
 		} catch (SQLException e) {
 			throw new DhtException(e);
+		} finally {
+			JdbcDatabase.closeConnection(conn);
 		}
 	}
 
 	@Override
 	public void remove(final ObjectIndexKey objId, ChunkKey chunk,
 			WriteBuffer buffer) throws DhtException {
-		// TODO use chunk
 		// TODO use buffer
+		Connection conn = null;
 		try {
 			if (objId != null) {
 				final String dbKey = Base64.encodeBytes(objId.toBytes());
+				final String dbObjectKey = Base64.encodeBytes(chunk.toBytes());
 
-				final Statement statement = database.getConnection()
-						.createStatement();
+				conn = database.getConnection();
+				final Statement statement = conn.createStatement();
 				final String sql = "DELETE FROM object_index WHERE oi_key = '"
-						+ dbKey + "'";
+						+ dbKey + "' AND oi_object_key = '" + dbObjectKey + "'";
 				System.out.println("-----");
 				System.out.println(sql);
 				statement.executeUpdate(sql);
 			}
 		} catch (SQLException e) {
 			throw new DhtException(e);
+		} finally {
+			JdbcDatabase.closeConnection(conn);
 		}
 	}
 }

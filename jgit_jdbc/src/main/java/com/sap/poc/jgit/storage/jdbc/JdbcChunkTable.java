@@ -3,6 +3,7 @@
  */
 package com.sap.poc.jgit.storage.jdbc;
 
+import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -28,16 +29,31 @@ public class JdbcChunkTable implements ChunkTable {
 	}
 
 	@Override
-	public void get(Context options, final Set<ChunkKey> keys,
+	public void get(final Context options, final Set<ChunkKey> keys,
 			final AsyncCallback<Collection<Members>> callback) {
-		final Collection<Members> memberList = new ArrayList<Members>();
+		database.getExecutorService().submit(new Runnable() {
+			@Override
+			public void run() {
+				try {
+					callback.onSuccess(getMembers(options, keys));
+				} catch (SQLException e) {
+					callback.onFailure(new DhtException(e));
+				}
+			}
+		});
+	}
+
+	private Collection<Members> getMembers(Context options,
+			final Set<ChunkKey> keys) throws SQLException {
+		Connection conn = null;
 		try {
+			final Collection<Members> memberList = new ArrayList<Members>();
 			if (keys != null)
 				for (ChunkKey key : keys) {
 					final String dbKey = Base64.encodeBytes(key.toBytes());
 
-					final Statement statement = database.getConnection()
-							.createStatement();
+					conn = database.getConnection();
+					final Statement statement = conn.createStatement();
 					final String sql = "SELECT c_chunk, c_index, c_meta FROM chunk WHERE c_key = '"
 							+ dbKey + "'";
 					System.out.println("-----");
@@ -62,27 +78,17 @@ public class JdbcChunkTable implements ChunkTable {
 						memberList.add(member);
 					}
 				}
-		} catch (final SQLException e) {
-			database.getExecutorService().submit(new Runnable() {
-				@Override
-				public void run() {
-					callback.onFailure(new DhtException(e));
-				}
-			});
+			return memberList;
+		} finally {
+			JdbcDatabase.closeConnection(conn);
 		}
-
-		database.getExecutorService().submit(new Runnable() {
-			@Override
-			public void run() {
-				callback.onSuccess(memberList);
-			}
-		});
 	}
 
 	@Override
 	public void put(final Members chunk, WriteBuffer buffer)
 			throws DhtException {
 		// TODO use buffer
+		Connection conn = null;
 		try {
 			if (chunk != null) {
 				final String dbKey = Base64.encodeBytes(chunk.getChunkKey()
@@ -94,8 +100,8 @@ public class JdbcChunkTable implements ChunkTable {
 				String dbMeta = chunk.getMeta() != null ? Base64
 						.encodeBytes(chunk.getMeta().toBytes()) : "";
 
-				Statement statement = database.getConnection()
-						.createStatement();
+				conn = database.getConnection();
+				Statement statement = conn.createStatement();
 				String sql = "SELECT c_chunk, c_index, c_meta FROM chunk WHERE c_key = '"
 						+ dbKey + "'";
 				System.out.println("-----");
@@ -111,7 +117,7 @@ public class JdbcChunkTable implements ChunkTable {
 					if (dbMeta.length() == 0)
 						dbMeta = resultSet.getString(3);
 
-					statement = database.getConnection().createStatement();
+					statement = conn.createStatement();
 					sql = "UPDATE chunk SET c_chunk = '" + dbChunk
 							+ "', c_index = '" + dbIndex + "', c_meta = '"
 							+ dbMeta + "' WHERE c_key = '" + dbKey + "'";
@@ -120,7 +126,7 @@ public class JdbcChunkTable implements ChunkTable {
 					statement.executeUpdate(sql);
 				} else {
 					// Not exists -> insert
-					statement = database.getConnection().createStatement();
+					statement = conn.createStatement();
 					sql = "INSERT INTO chunk (c_key, c_chunk, c_index, c_meta) VALUES ('"
 							+ dbKey
 							+ "', '"
@@ -135,6 +141,8 @@ public class JdbcChunkTable implements ChunkTable {
 			}
 		} catch (SQLException e) {
 			throw new DhtException(e);
+		} finally {
+			JdbcDatabase.closeConnection(conn);
 		}
 	}
 
@@ -142,12 +150,13 @@ public class JdbcChunkTable implements ChunkTable {
 	public void remove(final ChunkKey key, WriteBuffer buffer)
 			throws DhtException {
 		// TODO use buffer
+		Connection conn = null;
 		try {
 			if (key != null) {
 				final String dbKey = Base64.encodeBytes(key.toBytes());
 
-				final Statement statement = database.getConnection()
-						.createStatement();
+				conn = database.getConnection();
+				final Statement statement = conn.createStatement();
 				final String sql = "DELETE FROM chunk WHERE c_key = '" + dbKey
 						+ "'";
 				System.out.println("-----");
@@ -156,6 +165,8 @@ public class JdbcChunkTable implements ChunkTable {
 			}
 		} catch (SQLException e) {
 			throw new DhtException(e);
+		} finally {
+			JdbcDatabase.closeConnection(conn);
 		}
 	}
 }

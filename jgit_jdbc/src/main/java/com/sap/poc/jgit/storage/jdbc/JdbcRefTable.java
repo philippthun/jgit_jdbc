@@ -3,6 +3,7 @@
  */
 package com.sap.poc.jgit.storage.jdbc;
 
+import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -31,13 +32,14 @@ public class JdbcRefTable implements RefTable {
 			final RepositoryKey repository) throws DhtException,
 			TimeoutException {
 		final Map<RefKey, RefData> refMap = new HashMap<RefKey, RefData>();
+		Connection conn = null;
 		try {
 			if (repository != null) {
 				final String dbRepositoryKey = Base64.encodeBytes(repository
 						.toBytes());
 
-				final Statement statement = database.getConnection()
-						.createStatement();
+				conn = database.getConnection();
+				final Statement statement = conn.createStatement();
 				final String sql = "SELECT r_key, r_data FROM ref WHERE r_repository_key = '"
 						+ dbRepositoryKey + "'";
 				System.out.println("-----");
@@ -57,6 +59,8 @@ public class JdbcRefTable implements RefTable {
 			return refMap;
 		} catch (SQLException e) {
 			throw new DhtException(e);
+		} finally {
+			JdbcDatabase.closeConnection(conn);
 		}
 	}
 
@@ -70,11 +74,12 @@ public class JdbcRefTable implements RefTable {
 		final String dbRepositoryKey = Base64.encodeBytes(refKey
 				.getRepositoryKey().toBytes());
 
+		Connection conn = null;
 		RefData refData = null;
 
 		try {
-			final Statement statement = database.getConnection()
-					.createStatement();
+			conn = database.getConnection();
+			final Statement statement = conn.createStatement();
 			final String sql = "SELECT r_data FROM ref WHERE r_key = '" + dbKey
 					+ "' AND r_repository_key = '" + dbRepositoryKey + "'";
 			System.out.println("-----");
@@ -88,6 +93,8 @@ public class JdbcRefTable implements RefTable {
 			}
 		} catch (SQLException e) {
 			throw new DhtException(e);
+		} finally {
+			JdbcDatabase.closeConnection(conn);
 		}
 
 		final RefData oldData;
@@ -105,14 +112,15 @@ public class JdbcRefTable implements RefTable {
 			@Override
 			public boolean compareAndPut(final RefData newData)
 					throws DhtException {
+				Connection conn = null;
 				try {
 					// TODO compare
 					if (newData != null) {
 						final String dbData = Base64.encodeBytes(newData
 								.toBytes());
 
-						Statement statement = database.getConnection()
-								.createStatement();
+						conn = database.getConnection();
+						Statement statement = conn.createStatement();
 						String sql = "SELECT r_key FROM ref WHERE r_key = '"
 								+ dbKey + "' AND r_repository_key = '"
 								+ dbRepositoryKey + "'";
@@ -122,8 +130,7 @@ public class JdbcRefTable implements RefTable {
 						final ResultSet resultSet = statement.getResultSet();
 						if (resultSet != null && resultSet.next()) {
 							// Exists -> update
-							statement = database.getConnection()
-									.createStatement();
+							statement = conn.createStatement();
 							sql = "UPDATE ref SET r_data = '" + dbData
 									+ "' WHERE r_key = '" + dbKey
 									+ "' AND r_repository_key = '"
@@ -133,8 +140,7 @@ public class JdbcRefTable implements RefTable {
 							statement.executeUpdate(sql);
 						} else {
 							// Not exists -> insert
-							statement = database.getConnection()
-									.createStatement();
+							statement = conn.createStatement();
 							sql = "INSERT INTO ref (r_key, r_data, r_repository_key) VALUES "
 									+ "('"
 									+ dbKey
@@ -152,16 +158,19 @@ public class JdbcRefTable implements RefTable {
 					}
 				} catch (SQLException e) {
 					throw new DhtException(e);
+				} finally {
+					JdbcDatabase.closeConnection(conn);
 				}
 			}
 
 			@Override
 			public boolean compareAndRemove() throws DhtException,
 					TimeoutException {
+				Connection conn = null;
 				try {
 					// TODO compare
-					final Statement statement = database.getConnection()
-							.createStatement();
+					conn = database.getConnection();
+					final Statement statement = conn.createStatement();
 					final String sql = "DELETE FROM ref WHERE r_key = '"
 							+ dbKey + "' AND r_repository_key = '"
 							+ dbRepositoryKey + "'";
@@ -171,6 +180,8 @@ public class JdbcRefTable implements RefTable {
 					return true;
 				} catch (SQLException e) {
 					throw new DhtException(e);
+				} finally {
+					JdbcDatabase.closeConnection(conn);
 				}
 			}
 
