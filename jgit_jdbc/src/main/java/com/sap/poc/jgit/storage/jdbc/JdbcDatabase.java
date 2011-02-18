@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.concurrent.ExecutorService;
 
+import org.eclipse.jgit.storage.dht.DhtException;
 import org.eclipse.jgit.storage.dht.spi.ChunkTable;
 import org.eclipse.jgit.storage.dht.spi.Database;
 import org.eclipse.jgit.storage.dht.spi.ObjectIndexTable;
@@ -21,21 +22,21 @@ import org.eclipse.jgit.storage.dht.spi.WriteBuffer;
 public class JdbcDatabase implements Database {
 	private final ExecutorService executor;
 	private final ConnectionPool pool;
-	private final JdbcRepositoryIndexTable repositoryIndex;
-	private final JdbcRepositoryTable repository;
+	private final JdbcRepositoryIndexTable repoIdx;
+	private final JdbcRepositoryTable repo;
 	private final JdbcRefTable ref;
 	private final JdbcChunkTable chunk;
-	private final JdbcObjectIndexTable objectIndex;
+	private final JdbcObjectIndexTable objIdx;
 
-	JdbcDatabase(JdbcDatabaseBuilder builder) {
+	JdbcDatabase(final JdbcDatabaseBuilder builder) {
 		executor = builder.getExecutorService();
 		pool = new ConnectionPool("jdbc:" + builder.getVendor() + "://"
 				+ builder.getHost() + "/" + builder.getDatabaseName());
-		repositoryIndex = new JdbcRepositoryIndexTable(this);
-		repository = new JdbcRepositoryTable(this);
+		repoIdx = new JdbcRepositoryIndexTable(this);
+		repo = new JdbcRepositoryTable(this);
 		ref = new JdbcRefTable(this);
 		chunk = new JdbcChunkTable(this);
-		objectIndex = new JdbcObjectIndexTable(this);
+		objIdx = new JdbcObjectIndexTable(this);
 	}
 
 	ExecutorService getExecutorService() {
@@ -46,27 +47,18 @@ public class JdbcDatabase implements Database {
 		return pool.getConnection();
 	}
 
-	static void closeConnection(Connection conn) {
-		try {
-			if (conn != null)
-				conn.close();
-		} catch (SQLException e) {
-			// Ignore
-		}
-	}
-
 	public void shutdown() {
 		pool.shutdown();
 	}
 
 	@Override
 	public RepositoryIndexTable repositoryIndex() {
-		return repositoryIndex;
+		return repoIdx;
 	}
 
 	@Override
 	public RepositoryTable repository() {
-		return repository;
+		return repo;
 	}
 
 	@Override
@@ -81,12 +73,20 @@ public class JdbcDatabase implements Database {
 
 	@Override
 	public ObjectIndexTable objectIndex() {
-		return objectIndex;
+		return objIdx;
 	}
 
 	@Override
 	public WriteBuffer newWriteBuffer() {
-		return new JdbcWriteBuffer(executor, 1);
+		return new WriteBuffer() {
+			@Override
+			public void flush() throws DhtException {
+			}
+
+			@Override
+			public void abort() throws DhtException {
+			}
+		};
 	}
 }
 
@@ -94,7 +94,7 @@ class ConnectionPool {
 	private final String url;
 	private final Collection<JdbcConnection> connList;
 
-	ConnectionPool(String url) {
+	ConnectionPool(final String url) {
 		this.url = url;
 		connList = new ArrayList<JdbcConnection>();
 	}
@@ -102,7 +102,7 @@ class ConnectionPool {
 	Connection getConnection() throws SQLException {
 		JdbcConnection conn;
 
-		for (JdbcConnection c : connList) {
+		for (final JdbcConnection c : connList) {
 			conn = c.reuse();
 			if (conn != null)
 				return conn;
@@ -115,7 +115,7 @@ class ConnectionPool {
 	}
 
 	void shutdown() {
-		for (JdbcConnection conn : connList)
+		for (final JdbcConnection conn : connList)
 			try {
 				conn.doClose();
 			} catch (SQLException e) {

@@ -3,6 +3,12 @@
  */
 package com.sap.poc.jgit.storage.jdbc;
 
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.decodeRefData;
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.decodeRefKey;
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeRefData;
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeRefKey;
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeRepoKey;
+
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -18,49 +24,44 @@ import org.eclipse.jgit.storage.dht.RepositoryKey;
 import org.eclipse.jgit.storage.dht.spi.Context;
 import org.eclipse.jgit.storage.dht.spi.RefTable;
 import org.eclipse.jgit.storage.dht.spi.RefTransaction;
-import org.eclipse.jgit.util.Base64;
 
-public class JdbcRefTable implements RefTable {
-	private JdbcDatabase database;
+public class JdbcRefTable extends JdbcSqlHelper implements RefTable {
+	private JdbcDatabase db;
 
-	public JdbcRefTable(JdbcDatabase jdbcDatabase) {
-		database = jdbcDatabase;
+	public JdbcRefTable(final JdbcDatabase db) {
+		this.db = db;
 	}
 
 	@Override
 	public Map<RefKey, RefData> getAll(Context options,
 			final RepositoryKey repository) throws DhtException,
 			TimeoutException {
+		// TODO use options
 		final Map<RefKey, RefData> refMap = new HashMap<RefKey, RefData>();
 		Connection conn = null;
+
 		try {
 			if (repository != null) {
-				final String dbRepositoryKey = Base64.encodeBytes(repository
-						.toBytes());
-
-				conn = database.getConnection();
-				final Statement statement = conn.createStatement();
-				final String sql = "SELECT r_key, r_data FROM ref WHERE r_repository_key = '"
-						+ dbRepositoryKey + "'";
-				System.out.println("-----");
-				System.out.println(sql);
-				statement.execute(sql);
-				final ResultSet resultSet = statement.getResultSet();
-				if (resultSet != null)
-					while (resultSet.next()) {
-						final String key = resultSet.getString(1);
-						final String data = resultSet.getString(2);
-						if (key != null && key.length() > 0 && data != null
-								&& data.length() > 0)
-							refMap.put(RefKey.fromBytes(Base64.decode(key)),
-									RefData.fromBytes(Base64.decode(data)));
+				conn = db.getConnection();
+				final Statement stmt = conn.createStatement();
+				stmt.execute(SELECT_M_FROM_REF(encodeRepoKey(repository)));
+				final ResultSet resSet = stmt.getResultSet();
+				if (resSet != null)
+					while (resSet.next()) {
+						final String sRefKey = resSet.getString(1);
+						final String sRefData = resSet.getString(2);
+						if (sRefKey != null && sRefKey.length() > 0
+								&& sRefData != null && sRefData.length() > 0)
+							refMap.put(RefKey.fromBytes(decodeRefKey(sRefKey)),
+									RefData.fromBytes(decodeRefData(sRefData)));
 					}
+				return refMap;
 			}
-			return refMap;
+			throw new DhtException("Invalid parameter"); // TODO externalize
 		} catch (SQLException e) {
 			throw new DhtException(e);
 		} finally {
-			JdbcDatabase.closeConnection(conn);
+			closeConnection(conn);
 		}
 	}
 
@@ -68,33 +69,28 @@ public class JdbcRefTable implements RefTable {
 	public RefTransaction newTransaction(final RefKey refKey)
 			throws DhtException, TimeoutException {
 		if (refKey == null)
-			return null;
+			throw new DhtException("Invalid parameter"); // TODO externalize
 
-		final String dbKey = Base64.encodeBytes(refKey.toBytes());
-		final String dbRepositoryKey = Base64.encodeBytes(refKey
-				.getRepositoryKey().toBytes());
-
+		final String sRefKey = encodeRefKey(refKey);
+		final String sRepoKey = encodeRepoKey(refKey.getRepositoryKey());
 		Connection conn = null;
 		RefData refData = null;
 
 		try {
-			conn = database.getConnection();
-			final Statement statement = conn.createStatement();
-			final String sql = "SELECT r_data FROM ref WHERE r_key = '" + dbKey
-					+ "' AND r_repository_key = '" + dbRepositoryKey + "'";
-			System.out.println("-----");
-			System.out.println(sql);
-			statement.execute(sql);
-			final ResultSet resultSet = statement.getResultSet();
-			if (resultSet != null && resultSet.next()) {
+			conn = db.getConnection();
+			final Statement stmt = conn.createStatement();
+			stmt.execute(SELECT_FROM_REF(sRepoKey, sRefKey));
+			final ResultSet resSet = stmt.getResultSet();
+			if (resSet != null && resSet.next()) {
 				// Exists
-				final String data = resultSet.getString(1);
-				refData = RefData.fromBytes(Base64.decode(data));
+				final String sRefData = resSet.getString(1);
+				if (sRefData != null && sRefData.length() > 0)
+					refData = RefData.fromBytes(decodeRefData(sRefData));
 			}
 		} catch (SQLException e) {
 			throw new DhtException(e);
 		} finally {
-			JdbcDatabase.closeConnection(conn);
+			closeConnection(conn);
 		}
 
 		final RefData oldData;
@@ -113,53 +109,36 @@ public class JdbcRefTable implements RefTable {
 			public boolean compareAndPut(final RefData newData)
 					throws DhtException {
 				Connection conn = null;
+
 				try {
 					// TODO compare
-					if (newData != null) {
-						final String dbData = Base64.encodeBytes(newData
-								.toBytes());
 
-						conn = database.getConnection();
-						Statement statement = conn.createStatement();
-						String sql = "SELECT r_key FROM ref WHERE r_key = '"
-								+ dbKey + "' AND r_repository_key = '"
-								+ dbRepositoryKey + "'";
-						System.out.println("-----");
-						System.out.println(sql);
-						statement.execute(sql);
-						final ResultSet resultSet = statement.getResultSet();
-						if (resultSet != null && resultSet.next()) {
+					if (newData != null) {
+						final String sRefData = encodeRefData(newData);
+						conn = db.getConnection();
+						final Statement stmt = conn.createStatement();
+						stmt.execute(SELECT_EXISTS_FROM_REF(sRepoKey, sRefKey));
+						final ResultSet resSet = stmt.getResultSet();
+						if (resSet != null && resSet.next())
 							// Exists -> update
-							statement = conn.createStatement();
-							sql = "UPDATE ref SET r_data = '" + dbData
-									+ "' WHERE r_key = '" + dbKey
-									+ "' AND r_repository_key = '"
-									+ dbRepositoryKey + "'";
-							System.out.println("-----");
-							System.out.println(sql);
-							statement.executeUpdate(sql);
-						} else {
+							conn.createStatement().executeUpdate(
+									UPDATE_IN_REF(sRepoKey, sRefKey, sRefData));
+						else
 							// Not exists -> insert
-							statement = conn.createStatement();
-							sql = "INSERT INTO ref (r_key, r_data, r_repository_key) VALUES "
-									+ "('"
-									+ dbKey
-									+ "', '"
-									+ dbData
-									+ "', '"
-									+ dbRepositoryKey + "')";
-							System.out.println("-----");
-							System.out.println(sql);
-							statement.executeUpdate(sql);
-						}
+							conn.createStatement()
+									.executeUpdate(
+											INSERT_INTO_REF(sRepoKey, sRefKey,
+													sRefData));
+						// TODO check result
 						return true;
 					} else {
-						return false;
+						throw new DhtException("Invalid parameter"); // TODO
+																		// externalize
 					}
 				} catch (SQLException e) {
 					throw new DhtException(e);
 				} finally {
-					JdbcDatabase.closeConnection(conn);
+					closeConnection(conn);
 				}
 			}
 
@@ -167,21 +146,19 @@ public class JdbcRefTable implements RefTable {
 			public boolean compareAndRemove() throws DhtException,
 					TimeoutException {
 				Connection conn = null;
+
 				try {
 					// TODO compare
-					conn = database.getConnection();
-					final Statement statement = conn.createStatement();
-					final String sql = "DELETE FROM ref WHERE r_key = '"
-							+ dbKey + "' AND r_repository_key = '"
-							+ dbRepositoryKey + "'";
-					System.out.println("-----");
-					System.out.println(sql);
-					statement.executeUpdate(sql);
+
+					conn = db.getConnection();
+					conn.createStatement().executeUpdate(
+							DELETE_FROM_REF(sRepoKey, sRefKey));
+					// TODO check result
 					return true;
 				} catch (SQLException e) {
 					throw new DhtException(e);
 				} finally {
-					JdbcDatabase.closeConnection(conn);
+					closeConnection(conn);
 				}
 			}
 

@@ -55,7 +55,7 @@ class JdbcDaemon extends TextBuiltin {
 	@Option(name = "--forbid-override", metaVar = "metaVar_service", usage = "usage_configureTheServiceInDaemonServicename", multiValued = true)
 	final List<String> forbidOverride = new ArrayList<String>();
 
-	@Argument(index = 0, required = true, metaVar = "git+jdbc+")
+	@Argument(index = 0, required = true, metaVar = Main.GIT_JDBC_PREFIX)
 	String uri;
 
 	@Override

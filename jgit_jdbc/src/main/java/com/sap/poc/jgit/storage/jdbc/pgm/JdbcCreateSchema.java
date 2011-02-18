@@ -6,17 +6,17 @@ package com.sap.poc.jgit.storage.jdbc.pgm;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
-import java.sql.Statement;
 
 import org.eclipse.jgit.pgm.Command;
 import org.eclipse.jgit.pgm.TextBuiltin;
 import org.kohsuke.args4j.Argument;
 
 import com.sap.poc.jgit.storage.jdbc.JdbcDatabaseBuilder;
+import com.sap.poc.jgit.storage.jdbc.JdbcSqlConstants;
 
 @Command(name = "jdbc-create-schema")
-class JdbcCreateSchema extends TextBuiltin {
-	@Argument(index = 0, required = true, metaVar = "git+jdbc+")
+class JdbcCreateSchema extends TextBuiltin implements JdbcSqlConstants {
+	@Argument(index = 0, required = true, metaVar = Main.GIT_JDBC_PREFIX)
 	String uri;
 
 	@Override
@@ -31,63 +31,52 @@ class JdbcCreateSchema extends TextBuiltin {
 		try {
 			final JdbcDatabaseBuilder builder = new JdbcDatabaseBuilder()
 					.setURI(uri);
-			final String url = "jdbc:" + builder.getVendor() + "://"
-					+ builder.getHost() + "/" + builder.getDatabaseName();
-			conn = DriverManager.getConnection(url);
-			createRepositoryIndex(conn);
-			createRepository(conn);
-			createRef(conn);
-			createChunk(conn);
-			createObjectIndex(conn);
+			conn = DriverManager.getConnection("jdbc:" + builder.getVendor()
+					+ "://" + builder.getHost() + "/"
+					+ builder.getDatabaseName());
+			createRepositoryIndexTable(conn);
+			createChunkInfoTable(conn);
+			createCachedPackTable(conn);
+			createRefTable(conn);
+			createChunkTable(conn);
+			createObjectIndexTable(conn);
 		} catch (SQLException e) {
 			throw e;
 		} finally {
-			if (conn != null)
-				try {
+			try {
+				if (conn != null)
 					conn.close();
-				} catch (SQLException e) {
-					// Ignore
-				}
+			} catch (SQLException e) {
+				// Ignore
+			}
 		}
 	}
 
-	private void createRepositoryIndex(Connection conn) throws SQLException {
-		final Statement statement = conn.createStatement();
-		final String sql = "CREATE TABLE repository_index (ri_key CHAR(128), ri_name TEXT UNIQUE);";
-		System.out.println("-----");
-		System.out.println(sql);
-		statement.executeUpdate(sql);
+	private void createRepositoryIndexTable(final Connection conn)
+			throws SQLException {
+		conn.createStatement().executeUpdate(CREATE_REPO_IDX_TAB);
 	}
 
-	private void createRepository(Connection conn) throws SQLException {
-		final Statement statement = conn.createStatement();
-		final String sql = "CREATE TABLE repository (r_key CHAR(128), r_chunk_key CHAR(128), r_chunk_info TEXT, r_cached_pack_key CHAR(128), r_cached_pack_info TEXT);";
-		System.out.println("-----");
-		System.out.println(sql);
-		statement.executeUpdate(sql);
+	private void createChunkInfoTable(final Connection conn)
+			throws SQLException {
+		conn.createStatement().executeUpdate(CREATE_CHUNK_INFO_TAB);
 	}
 
-	private void createRef(Connection conn) throws SQLException {
-		final Statement statement = conn.createStatement();
-		final String sql = "CREATE TABLE ref (r_key CHAR(128), r_data TEXT, r_repository_key CHAR(128));";
-		System.out.println("-----");
-		System.out.println(sql);
-		statement.executeUpdate(sql);
+	private void createCachedPackTable(final Connection conn)
+			throws SQLException {
+		conn.createStatement().executeUpdate(CREATE_CACH_PACK_TAB);
 	}
 
-	private void createChunk(Connection conn) throws SQLException {
-		final Statement statement = conn.createStatement();
-		final String sql = "CREATE TABLE chunk (c_key CHAR(128), c_chunk TEXT, c_index TEXT, c_meta TEXT);";
-		System.out.println("-----");
-		System.out.println(sql);
-		statement.executeUpdate(sql);
+	private void createRefTable(final Connection conn) throws SQLException {
+		conn.createStatement().executeUpdate(CREATE_REF_TAB);
 	}
 
-	private void createObjectIndex(Connection conn) throws SQLException {
-		final Statement statement = conn.createStatement();
-		final String sql = "CREATE TABLE object_index (oi_key CHAR(128), oi_object_key CHAR(128), oi_object_info TEXT);";
-		System.out.println("-----");
-		System.out.println(sql);
-		statement.executeUpdate(sql);
+	private void createChunkTable(final Connection conn) throws SQLException {
+		conn.createStatement().executeUpdate(CREATE_CHUNK_TAB);
+	}
+
+	private void createObjectIndexTable(final Connection conn)
+			throws SQLException {
+		conn.createStatement().executeUpdate(CREATE_OBJ_IDX_TAB);
 	}
 }

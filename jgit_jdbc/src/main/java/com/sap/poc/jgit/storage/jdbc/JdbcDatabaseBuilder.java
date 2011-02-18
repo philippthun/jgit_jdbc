@@ -10,18 +10,20 @@ import org.eclipse.jgit.storage.dht.DhtException;
 import org.eclipse.jgit.storage.dht.spi.util.ExecutorTools;
 import org.eclipse.jgit.transport.URIish;
 
+import com.sap.poc.jgit.storage.jdbc.pgm.Main;
+
 public class JdbcDatabaseBuilder {
 	private String vendor;
 	private String host;
-	private String databaseName;
-	private ExecutorService executorService;
+	private String dbName;
+	private ExecutorService executor;
 
 	public JdbcDatabaseBuilder setURI(final String uri)
 			throws URISyntaxException {
 		final URIish u = new URIish(uri);
 
 		final String scheme = u.getScheme();
-		if (!scheme.startsWith("git+jdbc+"))
+		if (!scheme.startsWith(Main.GIT_JDBC_PREFIX))
 			throw new IllegalArgumentException();
 		final int beginVendor = scheme.lastIndexOf("+") + 1;
 		final String vendor = scheme.substring(beginVendor);
@@ -41,10 +43,10 @@ public class JdbcDatabaseBuilder {
 		if (path.startsWith("/"))
 			path = path.substring(1);
 
-		int endDatabaseName = path.indexOf("/");
-		if (endDatabaseName < 0)
-			endDatabaseName = path.length();
-		setDatabaseName(path.substring(0, endDatabaseName));
+		int endDbName = path.indexOf("/");
+		if (endDbName < 0)
+			endDbName = path.length();
+		setDatabaseName(path.substring(0, endDbName));
 		return this;
 	}
 
@@ -52,7 +54,7 @@ public class JdbcDatabaseBuilder {
 		return vendor;
 	}
 
-	public JdbcDatabaseBuilder setVendor(String vendor) {
+	public JdbcDatabaseBuilder setVendor(final String vendor) {
 		this.vendor = vendor;
 		return this;
 	}
@@ -61,27 +63,26 @@ public class JdbcDatabaseBuilder {
 		return host;
 	}
 
-	public JdbcDatabaseBuilder setHost(String host) {
+	public JdbcDatabaseBuilder setHost(final String host) {
 		this.host = host;
 		return this;
 	}
 
 	public String getDatabaseName() {
-		return databaseName;
+		return dbName;
 	}
 
-	public JdbcDatabaseBuilder setDatabaseName(String databaseName) {
-		this.databaseName = databaseName;
+	public JdbcDatabaseBuilder setDatabaseName(final String dbName) {
+		this.dbName = dbName;
 		return this;
 	}
 
 	public ExecutorService getExecutorService() {
-		return executorService;
+		return executor;
 	}
 
-	public JdbcDatabaseBuilder setExecutorService(
-			ExecutorService executorService) {
-		this.executorService = executorService;
+	public JdbcDatabaseBuilder setExecutorService(final ExecutorService executor) {
+		this.executor = executor;
 		return this;
 	}
 
@@ -96,7 +97,7 @@ public class JdbcDatabaseBuilder {
 			throw new IllegalArgumentException("No database name set");
 
 		if (getExecutorService() == null)
-			executorService = ExecutorTools.getDefaultExecutorService();
+			executor = ExecutorTools.getDefaultExecutorService();
 
 		return new JdbcDatabase(this);
 	}

@@ -11,9 +11,8 @@ implementations for Apache Cassandra (https://github.com/spearce/jgit_cassandra)
 and Apache HBase (https://github.com/spearce/jgit_hbase) have been used as
 'reference implementations'.
 
-This is the first working version; it is very primitive, but has been
-successfully tested on a PostgreSQL database (version 9.0.3-1). As a test
-repository, JGit itself was pushed and cloned.
+This version has been successfully tested on a PostgreSQL database (version
+9.0.3-1). As a test repository, JGit itself was pushed and cloned.
 
 Here are the steps to try it out:
 

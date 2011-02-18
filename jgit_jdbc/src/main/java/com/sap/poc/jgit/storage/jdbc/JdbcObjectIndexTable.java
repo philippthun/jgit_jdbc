@@ -3,6 +3,13 @@
  */
 package com.sap.poc.jgit.storage.jdbc;
 
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.decodeChunkKeyShort;
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.decodeObjInfo;
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeChunkKey;
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeChunkKeyShort;
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeObjIdxKey;
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeObjInfo;
+
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -21,13 +28,13 @@ import org.eclipse.jgit.storage.dht.ObjectInfo;
 import org.eclipse.jgit.storage.dht.spi.Context;
 import org.eclipse.jgit.storage.dht.spi.ObjectIndexTable;
 import org.eclipse.jgit.storage.dht.spi.WriteBuffer;
-import org.eclipse.jgit.util.Base64;
 
-public class JdbcObjectIndexTable implements ObjectIndexTable {
-	private JdbcDatabase database;
+public class JdbcObjectIndexTable extends JdbcSqlHelper implements
+		ObjectIndexTable {
+	private JdbcDatabase db;
 
-	public JdbcObjectIndexTable(JdbcDatabase jdbcDatabase) {
-		database = jdbcDatabase;
+	public JdbcObjectIndexTable(final JdbcDatabase db) {
+		this.db = db;
 	}
 
 	@Override
@@ -35,13 +42,13 @@ public class JdbcObjectIndexTable implements ObjectIndexTable {
 			final Context options,
 			final Set<ObjectIndexKey> objects,
 			final AsyncCallback<Map<ObjectIndexKey, Collection<ObjectInfo>>> callback) {
-		database.getExecutorService().submit(new Runnable() {
+		db.getExecutorService().submit(new Runnable() {
 			@Override
 			public void run() {
 				try {
 					callback.onSuccess(getObjectInfos(options, objects));
-				} catch (SQLException e) {
-					callback.onFailure(new DhtException(e));
+				} catch (DhtException e) {
+					callback.onFailure(e);
 				}
 			}
 		});
@@ -49,41 +56,44 @@ public class JdbcObjectIndexTable implements ObjectIndexTable {
 
 	private Map<ObjectIndexKey, Collection<ObjectInfo>> getObjectInfos(
 			Context options, final Set<ObjectIndexKey> objects)
-			throws SQLException {
+			throws DhtException {
+		// TODO use options
 		Connection conn = null;
+
 		try {
-			final Map<ObjectIndexKey, Collection<ObjectInfo>> objectInfoMap = new HashMap<ObjectIndexKey, Collection<ObjectInfo>>();
-			if (objects != null)
-				for (ObjectIndexKey object : objects) {
-					final String dbKey = Base64.encodeBytes(object.toBytes());
-
-					conn = database.getConnection();
-					final Statement statement = conn.createStatement();
-					final String sql = "SELECT oi_object_key, oi_object_info FROM object_index WHERE oi_key = '"
-							+ dbKey + "'";
-					System.out.println("-----");
-					System.out.println(sql);
-					statement.execute(sql);
-					final ResultSet resultSet = statement.getResultSet();
-					if (resultSet != null) {
-						final Collection<ObjectInfo> infoList = new ArrayList<ObjectInfo>();
-						while (resultSet.next()) {
-							final String objectKey = resultSet.getString(1);
-							final String objectInfo = resultSet.getString(2);
-
-							if (objectKey != null && objectKey.length() > 0
-									&& objectInfo != null
-									&& objectInfo.length() > 0)
-								infoList.add(ObjectInfo.fromBytes(ChunkKey
-										.fromBytes(Base64.decode(objectKey)),
-										Base64.decode(objectInfo), -1));
+			final Map<ObjectIndexKey, Collection<ObjectInfo>> objInfoMap = new HashMap<ObjectIndexKey, Collection<ObjectInfo>>();
+			if (objects != null) {
+				for (final ObjectIndexKey objIdxKey : objects) {
+					conn = db.getConnection();
+					final Statement stmt = conn.createStatement();
+					stmt.execute(SELECT_M_FROM_OBJ_IDX(encodeObjIdxKey(objIdxKey)));
+					final ResultSet resSet = stmt.getResultSet();
+					if (resSet != null) {
+						final Collection<ObjectInfo> objInfoList = new ArrayList<ObjectInfo>();
+						while (resSet.next()) {
+							final String sChunkKeyShort = resSet.getString(1);
+							final String sObjInfo = resSet.getString(2);
+							if (sChunkKeyShort != null
+									&& sChunkKeyShort.length() > 0
+									&& sObjInfo != null
+									&& sObjInfo.length() > 0)
+								objInfoList
+										.add(ObjectInfo.fromBytes(
+												ChunkKey.fromShortBytes(
+														objIdxKey,
+														decodeChunkKeyShort(sChunkKeyShort)),
+												decodeObjInfo(sObjInfo), -1));
 						}
-						objectInfoMap.put(object, infoList);
+						objInfoMap.put(objIdxKey, objInfoList);
 					}
 				}
-			return objectInfoMap;
+				return objInfoMap;
+			}
+			throw new DhtException("Invalid parameter"); // TODO externalize
+		} catch (SQLException e) {
+			throw new DhtException(e);
 		} finally {
-			JdbcDatabase.closeConnection(conn);
+			closeConnection(conn);
 		}
 	}
 
@@ -92,55 +102,45 @@ public class JdbcObjectIndexTable implements ObjectIndexTable {
 			WriteBuffer buffer) throws DhtException {
 		// TODO use buffer
 		Connection conn = null;
+
 		try {
 			if (objId != null && info != null) {
-				final String dbKey = Base64.encodeBytes(objId.toBytes());
-				final String dbObjectKey = Base64.encodeBytes(info
-						.getChunkKey().toBytes());
-				final String dbObjectInfo = Base64.encodeBytes(info.toBytes());
-
-				conn = database.getConnection();
-				final Statement statement = conn.createStatement();
-				final String sql = "INSERT INTO object_index (oi_key, oi_object_key, oi_object_info) VALUES ('"
-						+ dbKey
-						+ "', '"
-						+ dbObjectKey
-						+ "', '"
-						+ dbObjectInfo
-						+ "')";
-				System.out.println("-----");
-				System.out.println(sql);
-				statement.executeUpdate(sql);
+				conn = db.getConnection();
+				conn.createStatement().executeUpdate(
+						INSERT_INTO_OBJ_IDX(encodeObjIdxKey(objId),
+								encodeChunkKeyShort(info.getChunkKey()),
+								encodeObjInfo(info)));
+				// TODO check result
+				return;
 			}
+			throw new DhtException("Invalid parameters"); // TODO externalize
 		} catch (SQLException e) {
 			throw new DhtException(e);
 		} finally {
-			JdbcDatabase.closeConnection(conn);
+			closeConnection(conn);
 		}
 	}
 
 	@Override
-	public void remove(final ObjectIndexKey objId, ChunkKey chunk,
+	public void remove(final ObjectIndexKey objId, final ChunkKey chunk,
 			WriteBuffer buffer) throws DhtException {
 		// TODO use buffer
 		Connection conn = null;
-		try {
-			if (objId != null) {
-				final String dbKey = Base64.encodeBytes(objId.toBytes());
-				final String dbObjectKey = Base64.encodeBytes(chunk.toBytes());
 
-				conn = database.getConnection();
-				final Statement statement = conn.createStatement();
-				final String sql = "DELETE FROM object_index WHERE oi_key = '"
-						+ dbKey + "' AND oi_object_key = '" + dbObjectKey + "'";
-				System.out.println("-----");
-				System.out.println(sql);
-				statement.executeUpdate(sql);
+		try {
+			if (objId != null && chunk != null) {
+				conn = db.getConnection();
+				conn.createStatement().executeUpdate(
+						DELETE_FROM_OBJ_IDX(encodeObjIdxKey(objId),
+								encodeChunkKey(chunk)));
+				// TODO check result
+				return;
 			}
+			throw new DhtException("Invalid parameters"); // TODO externalize
 		} catch (SQLException e) {
 			throw new DhtException(e);
 		} finally {
-			JdbcDatabase.closeConnection(conn);
+			closeConnection(conn);
 		}
 	}
 }

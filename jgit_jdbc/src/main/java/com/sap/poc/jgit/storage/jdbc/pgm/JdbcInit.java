@@ -12,7 +12,7 @@ import com.sap.poc.jgit.storage.jdbc.JdbcRepositoryBuilder;
 
 @Command(name = "jdbc-init")
 class JdbcInit extends TextBuiltin {
-	@Argument(index = 0, required = true, metaVar = "git+jdbc+")
+	@Argument(index = 0, required = true, metaVar = Main.GIT_JDBC_PREFIX)
 	String uri;
 
 	@Override

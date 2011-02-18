@@ -3,6 +3,10 @@
  */
 package com.sap.poc.jgit.storage.jdbc;
 
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.decodeRepoKey;
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeRepoKey;
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeRepoName;
+
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -13,42 +17,40 @@ import org.eclipse.jgit.storage.dht.DhtException;
 import org.eclipse.jgit.storage.dht.RepositoryKey;
 import org.eclipse.jgit.storage.dht.RepositoryName;
 import org.eclipse.jgit.storage.dht.spi.RepositoryIndexTable;
-import org.eclipse.jgit.util.Base64;
 
-public class JdbcRepositoryIndexTable implements RepositoryIndexTable {
-	private JdbcDatabase database;
+public class JdbcRepositoryIndexTable extends JdbcSqlHelper implements
+		RepositoryIndexTable {
+	private JdbcDatabase db;
 
-	public JdbcRepositoryIndexTable(JdbcDatabase jdbcDatabase) {
-		database = jdbcDatabase;
+	public JdbcRepositoryIndexTable(final JdbcDatabase db) {
+		this.db = db;
 	}
 
 	@Override
 	public RepositoryKey get(final RepositoryName name) throws DhtException,
 			TimeoutException {
 		Connection conn = null;
+
 		try {
 			if (name != null) {
-				final String dbName = name.asString();
-
-				conn = database.getConnection();
-				final Statement statement = conn.createStatement();
-				final String sql = "SELECT ri_key FROM repository_index WHERE ri_name = '"
-						+ dbName + "'";
-				System.out.println("-----");
-				System.out.println(sql);
-				statement.execute(sql);
-				final ResultSet resultSet = statement.getResultSet();
-				if (resultSet != null && resultSet.next()) {
+				conn = db.getConnection();
+				final Statement stmt = conn.createStatement();
+				stmt.execute(SELECT_REPO_KEY_FROM_REPO_IDX(encodeRepoName(name)));
+				final ResultSet resSet = stmt.getResultSet();
+				if (resSet != null && resSet.next()) {
 					// Exists
-					final String key = resultSet.getString(1);
-					return RepositoryKey.fromBytes(Base64.decode(key));
+					final String sRepoKey = resSet.getString(1);
+					if (sRepoKey != null && sRepoKey.length() > 0)
+						return RepositoryKey.fromBytes(decodeRepoKey(sRepoKey));
 				}
+				throw new DhtException("Repository not exists"); // TODO
+																	// externalize
 			}
-			return null;
+			throw new DhtException("Invalid parameter"); // TODO externalize
 		} catch (SQLException e) {
 			throw new DhtException(e);
 		} finally {
-			JdbcDatabase.closeConnection(conn);
+			closeConnection(conn);
 		}
 	}
 
@@ -56,23 +58,28 @@ public class JdbcRepositoryIndexTable implements RepositoryIndexTable {
 	public void putUnique(final RepositoryName name, final RepositoryKey key)
 			throws DhtException, TimeoutException {
 		Connection conn = null;
+
 		try {
 			if (name != null && key != null) {
-				final String dbKey = Base64.encodeBytes(key.toBytes());
-				final String dbName = name.asString();
-
-				conn = database.getConnection();
-				final Statement statement = conn.createStatement();
-				final String sql = "INSERT INTO repository_index (ri_key, ri_name) VALUES ('"
-						+ dbKey + "', '" + dbName + "')";
-				System.out.println("-----");
-				System.out.println(sql);
-				statement.executeUpdate(sql);
+				final String sRepoName = encodeRepoName(name);
+				conn = db.getConnection();
+				final Statement stmt = conn.createStatement();
+				stmt.execute(SELECT_EXISTS_FROM_REPO_IDX(sRepoName));
+				final ResultSet resSet = stmt.getResultSet();
+				if (resSet != null && resSet.next())
+					// Exists
+					throw new DhtException("Repository name already exists"); // TODO
+																				// externalize
+				conn.createStatement().executeUpdate(
+						INSERT_INTO_REPO_IDX(encodeRepoKey(key), sRepoName));
+				// TODO check result
+				return;
 			}
+			throw new DhtException("Invalid parameters"); // TODO externalize
 		} catch (SQLException e) {
 			throw new DhtException(e);
 		} finally {
-			JdbcDatabase.closeConnection(conn);
+			closeConnection(conn);
 		}
 	}
 }

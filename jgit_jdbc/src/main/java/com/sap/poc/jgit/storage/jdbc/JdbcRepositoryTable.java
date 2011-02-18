@@ -3,6 +3,13 @@
  */
 package com.sap.poc.jgit.storage.jdbc;
 
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.decodeCachPackInfo;
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeCachPackInfo;
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeCachPackKey;
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeChunkInfo;
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeChunkKey;
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeRepoKey;
+
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -19,13 +26,13 @@ import org.eclipse.jgit.storage.dht.DhtException;
 import org.eclipse.jgit.storage.dht.RepositoryKey;
 import org.eclipse.jgit.storage.dht.spi.RepositoryTable;
 import org.eclipse.jgit.storage.dht.spi.WriteBuffer;
-import org.eclipse.jgit.util.Base64;
 
-public class JdbcRepositoryTable implements RepositoryTable {
-	private JdbcDatabase database;
+public class JdbcRepositoryTable extends JdbcSqlHelper implements
+		RepositoryTable {
+	private JdbcDatabase db;
 
-	public JdbcRepositoryTable(JdbcDatabase jdbcDatabase) {
-		database = jdbcDatabase;
+	public JdbcRepositoryTable(final JdbcDatabase db) {
+		this.db = db;
 	}
 
 	@Override
@@ -33,49 +40,34 @@ public class JdbcRepositoryTable implements RepositoryTable {
 			WriteBuffer buffer) throws DhtException {
 		// TODO use buffer
 		Connection conn = null;
+
 		try {
 			if (repo != null && info != null) {
-				final String dbKey = Base64.encodeBytes(repo.toBytes());
-				final String dbChunkKey = Base64.encodeBytes(info.getChunkKey()
-						.toBytes());
-				final String dbChunkInfo = Base64.encodeBytes(info.toBytes());
-
-				conn = database.getConnection();
-				Statement statement = conn.createStatement();
-				String sql = "SELECT r_chunk_key FROM repository WHERE r_key = '"
-						+ dbKey + "' AND r_chunk_key = '" + dbChunkKey + "'";
-				System.out.println("-----");
-				System.out.println(sql);
-				statement.execute(sql);
-				final ResultSet resultSet = statement.getResultSet();
-				if (resultSet != null && resultSet.next()) {
+				final String sRepoKey = encodeRepoKey(repo);
+				final String sChunkKey = encodeChunkKey(info.getChunkKey());
+				final String sChunkInfo = encodeChunkInfo(info);
+				conn = db.getConnection();
+				final Statement stmt = conn.createStatement();
+				stmt.execute(SELECT_EXISTS_FROM_CHUNK_INFO(sRepoKey, sChunkKey));
+				final ResultSet resSet = stmt.getResultSet();
+				if (resSet != null && resSet.next())
 					// Exists -> update
-					statement = conn.createStatement();
-					sql = "UPDATE repository SET r_chunk_info = '"
-							+ dbChunkInfo + "' WHERE r_key = '" + dbKey
-							+ "' AND r_chunk_key = '" + dbChunkKey + "'";
-					System.out.println("-----");
-					System.out.println(sql);
-					statement.executeUpdate(sql);
-				} else {
+					conn.createStatement().executeUpdate(
+							UPDATE_IN_CHUNK_INFO(sRepoKey, sChunkKey,
+									sChunkInfo));
+				else
 					// Not exists -> insert
-					statement = conn.createStatement();
-					sql = "INSERT INTO repository (r_key, r_chunk_key, r_chunk_info) VALUES "
-							+ "('"
-							+ dbKey
-							+ "', '"
-							+ dbChunkKey
-							+ "', '"
-							+ dbChunkInfo + "')";
-					System.out.println("-----");
-					System.out.println(sql);
-					statement.executeUpdate(sql);
-				}
+					conn.createStatement().executeUpdate(
+							INSERT_INTO_CHUNK_INFO(sRepoKey, sChunkKey,
+									sChunkInfo));
+				// TODO check result
+				return;
 			}
+			throw new DhtException("Invalid parameters"); // TODO externalize
 		} catch (SQLException e) {
 			throw new DhtException(e);
 		} finally {
-			JdbcDatabase.closeConnection(conn);
+			closeConnection(conn);
 		}
 	}
 
@@ -84,23 +76,21 @@ public class JdbcRepositoryTable implements RepositoryTable {
 			WriteBuffer buffer) throws DhtException {
 		// TODO use buffer
 		Connection conn = null;
+
 		try {
 			if (repo != null && chunk != null) {
-				final String dbKey = Base64.encodeBytes(repo.toBytes());
-				final String dbChunkKey = Base64.encodeBytes(chunk.toBytes());
-
-				conn = database.getConnection();
-				final Statement statement = conn.createStatement();
-				final String sql = "DELETE FROM repository WHERE r_key = '"
-						+ dbKey + "' AND r_chunk_key = '" + dbChunkKey + "'";
-				System.out.println("-----");
-				System.out.println(sql);
-				statement.executeUpdate(sql);
+				conn = db.getConnection();
+				conn.createStatement().executeUpdate(
+						DELETE_FROM_CHUNK_INFO(encodeRepoKey(repo),
+								encodeChunkKey(chunk)));
+				// TODO check result
+				return;
 			}
+			throw new DhtException("Invalid parameters"); // TODO externalize
 		} catch (SQLException e) {
 			throw new DhtException(e);
 		} finally {
-			JdbcDatabase.closeConnection(conn);
+			closeConnection(conn);
 		}
 	}
 
@@ -109,32 +99,28 @@ public class JdbcRepositoryTable implements RepositoryTable {
 			throws DhtException, TimeoutException {
 		final Collection<CachedPackInfo> cachedPackInfoList = new ArrayList<CachedPackInfo>();
 		Connection conn = null;
+
 		try {
 			if (repo != null) {
-				final String dbKey = Base64.encodeBytes(repo.toBytes());
-
-				conn = database.getConnection();
-				final Statement statement = conn.createStatement();
-				final String sql = "SELECT r_cached_pack_info FROM repository WHERE r_key = '"
-						+ dbKey + "' AND NOT r_cached_pack_key = ''";
-				System.out.println("-----");
-				System.out.println(sql);
-				statement.execute(sql);
-				final ResultSet resultSet = statement.getResultSet();
-				if (resultSet != null)
-					while (resultSet.next()) {
-						final String cachedPackInfo = resultSet.getString(1);
-						if (cachedPackInfo != null
-								&& cachedPackInfo.length() > 0)
+				conn = db.getConnection();
+				final Statement stmt = conn.createStatement();
+				stmt.execute(SELECT_M_FROM_CACH_PACK(encodeRepoKey(repo)));
+				final ResultSet resSet = stmt.getResultSet();
+				if (resSet != null)
+					while (resSet.next()) {
+						final String sCachedPackInfo = resSet.getString(1);
+						if (sCachedPackInfo != null
+								&& sCachedPackInfo.length() > 0)
 							cachedPackInfoList.add(CachedPackInfo.fromBytes(
-									repo, Base64.decode(cachedPackInfo)));
+									repo, decodeCachPackInfo(sCachedPackInfo)));
 					}
+				return cachedPackInfoList;
 			}
-			return cachedPackInfoList;
+			throw new DhtException("Invalid parameter"); // TODO externalize
 		} catch (final SQLException e) {
 			throw new DhtException(e);
 		} finally {
-			JdbcDatabase.closeConnection(conn);
+			closeConnection(conn);
 		}
 	}
 
@@ -143,53 +129,36 @@ public class JdbcRepositoryTable implements RepositoryTable {
 			WriteBuffer buffer) throws DhtException {
 		// TODO use buffer
 		Connection conn = null;
+
 		try {
 			if (repo != null && info != null) {
-				final String dbKey = Base64.encodeBytes(repo.toBytes());
-				final String dbCachedPackKey = Base64.encodeBytes(info
-						.getRowKey().toBytes());
-				final String dbCachedPackInfo = Base64.encodeBytes(info
-						.toBytes());
-
-				conn = database.getConnection();
-				Statement statement = conn.createStatement();
-				String sql = "SELECT r_cached_pack_key FROM repository WHERE r_key = '"
-						+ dbKey
-						+ "' AND r_cached_pack_key = '"
-						+ dbCachedPackKey + "'";
-				System.out.println("-----");
-				System.out.println(sql);
-				statement.execute(sql);
-				final ResultSet resultSet = statement.getResultSet();
-				if (resultSet != null && resultSet.next()) {
+				final String sRepoKey = encodeRepoKey(repo);
+				final String sCachedPackKey = encodeCachPackKey(info
+						.getRowKey());
+				final String sCachedPackInfo = encodeCachPackInfo(info);
+				conn = db.getConnection();
+				final Statement stmt = conn.createStatement();
+				stmt.execute(SELECT_EXISTS_FROM_CACH_PACK(sRepoKey,
+						sCachedPackKey));
+				final ResultSet resSet = stmt.getResultSet();
+				if (resSet != null && resSet.next())
 					// Exists -> update
-					statement = conn.createStatement();
-					sql = "UPDATE repository SET r_cached_pack_info = '"
-							+ dbCachedPackInfo + "' WHERE r_key = '" + dbKey
-							+ "' AND r_cached_pack_key = '" + dbCachedPackKey
-							+ "'";
-					System.out.println("-----");
-					System.out.println(sql);
-					statement.executeUpdate(sql);
-				} else {
+					conn.createStatement().executeUpdate(
+							UPDATE_IN_CACH_PACK(sRepoKey, sCachedPackKey,
+									sCachedPackInfo));
+				else
 					// Not exists -> insert
-					statement = conn.createStatement();
-					sql = "INSERT INTO repository (r_key, r_cached_pack_key, r_cached_pack_info) VALUES "
-							+ "('"
-							+ dbKey
-							+ "', '"
-							+ dbCachedPackKey
-							+ "', '"
-							+ dbCachedPackInfo + "')";
-					System.out.println("-----");
-					System.out.println(sql);
-					statement.executeUpdate(sql);
-				}
+					conn.createStatement().executeUpdate(
+							INSERT_INTO_CACH_PACK(sRepoKey, sCachedPackKey,
+									sCachedPackInfo));
+				// TODO check result
+				return;
 			}
+			throw new DhtException("Invalid parameters"); // TODO externalize
 		} catch (SQLException e) {
 			throw new DhtException(e);
 		} finally {
-			JdbcDatabase.closeConnection(conn);
+			closeConnection(conn);
 		}
 	}
 
@@ -198,25 +167,21 @@ public class JdbcRepositoryTable implements RepositoryTable {
 			WriteBuffer buffer) throws DhtException {
 		// TODO use buffer
 		Connection conn = null;
+
 		try {
 			if (repo != null && key != null) {
-				final String dbKey = Base64.encodeBytes(repo.toBytes());
-				final String dbCachedPackKey = Base64
-						.encodeBytes(key.toBytes());
-
-				conn = database.getConnection();
-				final Statement statement = conn.createStatement();
-				final String sql = "DELETE FROM repository WHERE r_key = '"
-						+ dbKey + "' AND r_cached_pack_key = '"
-						+ dbCachedPackKey + "'";
-				System.out.println("-----");
-				System.out.println(sql);
-				statement.executeUpdate(sql);
+				conn = db.getConnection();
+				conn.createStatement().executeUpdate(
+						DELETE_FROM_CACH_PACK(encodeRepoKey(repo),
+								encodeCachPackKey(key)));
+				// TODO check result
+				return;
 			}
+			throw new DhtException("Invalid parameters"); // TODO externalize
 		} catch (SQLException e) {
 			throw new DhtException(e);
 		} finally {
-			JdbcDatabase.closeConnection(conn);
+			closeConnection(conn);
 		}
 	}
 }

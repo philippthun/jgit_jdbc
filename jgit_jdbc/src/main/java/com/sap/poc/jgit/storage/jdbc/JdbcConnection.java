@@ -25,7 +25,7 @@ public class JdbcConnection implements Connection {
 	private final Connection conn;
 	private volatile boolean reusable;
 
-	JdbcConnection(Connection conn) {
+	JdbcConnection(final Connection conn) {
 		this.conn = conn;
 		reusable = false;
 	}
