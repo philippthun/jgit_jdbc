@@ -5,14 +5,15 @@ This package is a prototypical implementation (proof of concept, thus packaged
 in com.sap.poc) of the (not final) org.eclipse.jgit.storage.dht.spi interface.
 It binds JGit's generic DHT storage to JDBC.
 
-The code is based on patch set 5 of Shawn Pearce's JGit change "RFC Store Git on
-any DHT" (http://egit.eclipse.org/r/2295). Furthermore Shawn's JGit DHT storage
-implementations for Apache Cassandra (https://github.com/spearce/jgit_cassandra)
-and Apache HBase (https://github.com/spearce/jgit_hbase) have been used as
-'reference implementations'.
+The code is based on patch set 11 of Shawn Pearce's JGit change "RFC Store Git
+on any DHT" (http://egit.eclipse.org/r/2295). Furthermore Shawn's JGit DHT
+storage implementations for Apache Cassandra (https://github.com/spearce/jgit_
+cassandra) and Apache HBase (https://github.com/spearce/jgit_hbase) have been
+used as 'reference implementations'.
 
 This version has been successfully tested on a PostgreSQL database (version
-9.0.3-1). As a test repository, JGit itself was pushed and cloned.
+9.0.3-1). As a test repository, JGit itself was pushed and cloned. The current
+version works with PostgreSQL only as it uses data type 'BYTEA'.
 
 Here are the steps to try it out:
 

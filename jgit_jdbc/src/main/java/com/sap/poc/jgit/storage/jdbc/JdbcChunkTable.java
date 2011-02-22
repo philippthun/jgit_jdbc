@@ -3,18 +3,13 @@
  */
 package com.sap.poc.jgit.storage.jdbc;
 
-import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.decodeChunkData;
-import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.decodeChunkIdx;
-import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.decodeChunkMeta;
-import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeChunkData;
-import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeChunkIdx;
-import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeChunkKey;
-import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeChunkMeta;
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeRowKey;
 
+import java.io.UnsupportedEncodingException;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Set;
@@ -60,29 +55,33 @@ public class JdbcChunkTable extends JdbcSqlHelper implements ChunkTable {
 			if (keys != null) {
 				for (ChunkKey chunkKey : keys) {
 					conn = db.getConnection();
-					final Statement stmt = conn.createStatement();
-					stmt.execute(SELECT_FROM_CHUNK(encodeChunkKey(chunkKey)));
+					final PreparedStatement stmt = conn
+							.prepareStatement(SELECT_FROM_CHUNK);
+					stmt.setString(1, encodeRowKey(chunkKey));
+					stmt.execute();
 					final ResultSet resSet = stmt.getResultSet();
 					if (resSet != null && resSet.next()) {
 						// Exists
-						final String sChunkData = resSet.getString(1);
-						final String sChunkIdx = resSet.getString(2);
-						final String sChunkMeta = resSet.getString(3);
+						final byte[] chunkData = resSet.getBytes(1);
+						final byte[] chunkIdx = resSet.getBytes(2);
+						final byte[] chunkMeta = resSet.getBytes(3);
 						final Members member = new Members();
 						member.setChunkKey(chunkKey);
-						if (sChunkData != null && sChunkData.length() > 0)
-							member.setChunkData(decodeChunkData(sChunkData));
-						if (sChunkIdx != null && sChunkIdx.length() > 0)
-							member.setChunkIndex(decodeChunkIdx(sChunkIdx));
-						if (sChunkMeta != null && sChunkMeta.length() > 0)
+						if (chunkData != null && chunkData.length > 0)
+							member.setChunkData(chunkData);
+						if (chunkIdx != null && chunkIdx.length > 0)
+							member.setChunkIndex(chunkIdx);
+						if (chunkMeta != null && chunkMeta.length > 0)
 							member.setMeta(ChunkMeta.fromBytes(chunkKey,
-									decodeChunkMeta(sChunkMeta)));
+									chunkMeta));
 						memberList.add(member);
 					}
 				}
 				return memberList;
 			}
 			throw new DhtException("Invalid parameter"); // TODO externalize
+		} catch (UnsupportedEncodingException e) {
+			throw new DhtException(e);
 		} catch (SQLException e) {
 			throw new DhtException(e);
 		} finally {
@@ -98,27 +97,33 @@ public class JdbcChunkTable extends JdbcSqlHelper implements ChunkTable {
 
 		try {
 			if (chunk != null) {
-				final String sChunkKey = encodeChunkKey(chunk.getChunkKey());
+				final String sChunkKey = encodeRowKey(chunk.getChunkKey());
 				conn = db.getConnection();
 				if (chunk.getChunkData() != null) {
 					// Assume insert of ChunkData
-					conn.createStatement().executeUpdate(
-							INSERT_INTO_CHUNK(sChunkKey,
-									encodeChunkData(chunk.getChunkData())));
+					final PreparedStatement stmt = conn
+							.prepareStatement(INSERT_INTO_CHUNK);
+					stmt.setString(1, sChunkKey);
+					stmt.setBytes(2, chunk.getChunkData());
+					stmt.executeUpdate();
 				} else {
 					// Assume update of ChunkIndex and ChunkMeta
-					final String sChunkIdx = encodeChunkIdx(chunk
-							.getChunkIndex());
-					final String sChunkMeta = encodeChunkMeta(chunk.getMeta());
-					conn.createStatement().executeUpdate(
-							UPDATE_IN_CHUNK(sChunkKey,
-									sChunkIdx != null ? sChunkIdx : "",
-									sChunkMeta != null ? sChunkMeta : ""));
+					final byte[] chunkIdx = chunk.getChunkIndex();
+					final ChunkMeta chunkMeta = chunk.getMeta();
+					final PreparedStatement stmt = conn
+							.prepareStatement(UPDATE_IN_CHUNK);
+					stmt.setBytes(1, chunkIdx != null ? chunkIdx : new byte[0]);
+					stmt.setBytes(2, chunkMeta != null ? chunkMeta.toBytes()
+							: new byte[0]);
+					stmt.setString(3, sChunkKey);
+					stmt.executeUpdate();
 				}
 				// TODO check result
 				return;
 			}
 			throw new DhtException("Invalid parameter"); // TODO externalize
+		} catch (UnsupportedEncodingException e) {
+			throw new DhtException(e);
 		} catch (SQLException e) {
 			throw new DhtException(e);
 		} finally {
@@ -135,12 +140,16 @@ public class JdbcChunkTable extends JdbcSqlHelper implements ChunkTable {
 		try {
 			if (key != null) {
 				conn = db.getConnection();
-				conn.createStatement().executeUpdate(
-						DELETE_FROM_CHUNK(encodeChunkKey(key)));
+				final PreparedStatement stmt = conn
+						.prepareStatement(DELETE_FROM_CHUNK);
+				stmt.setString(1, encodeRowKey(key));
+				stmt.executeUpdate();
 				// TODO check result
 				return;
 			}
 			throw new DhtException("Invalid parameter"); // TODO externalize
+		} catch (UnsupportedEncodingException e) {
+			throw new DhtException(e);
 		} catch (SQLException e) {
 			throw new DhtException(e);
 		} finally {

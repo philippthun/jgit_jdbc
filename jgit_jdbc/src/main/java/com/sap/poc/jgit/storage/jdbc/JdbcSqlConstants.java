@@ -24,26 +24,158 @@ public interface JdbcSqlConstants {
 	static final String REPO_KEY = "repo_key";
 	static final String REPO_NAME = "repo_name";
 
+	/*
+	 * REPO_KEY: 8 bytes, (US-ASCII) characters
+	 * 
+	 * REPO_NAME: characters, variable length, maps to a directory on file
+	 * system, assume max. filename length is 256 (ext4), plus ".git" ending =>
+	 * 256 + 4 = 260
+	 */
 	static final String CREATE_REPO_IDX_TAB = "CREATE TABLE " + REPO_IDX_TAB
-			+ " (" + REPO_KEY + " CHAR(128), " + REPO_NAME + " TEXT);";
+			+ " (" + REPO_KEY + " CHAR(8), " + REPO_NAME + " VARCHAR(260));";
 
+	/*
+	 * REPO_KEY: 8 bytes, (US-ASCII) characters
+	 * 
+	 * CHUNK_KEY: 59 bytes, (US-ASCII) characters
+	 * 
+	 * CHUNK_INFO: byte array, variable length, max. length ? (TODO 128?)
+	 */
 	static final String CREATE_CHUNK_INFO_TAB = "CREATE TABLE "
-			+ CHUNK_INFO_TAB + " (" + REPO_KEY + " CHAR(128), " + CHUNK_KEY
-			+ " CHAR(128), " + CHUNK_INFO + " TEXT);";
+			+ CHUNK_INFO_TAB + " (" + REPO_KEY + " CHAR(8), " + CHUNK_KEY
+			+ " CHAR(59), " + CHUNK_INFO + " BYTEA);";
 
+	/*
+	 * REPO_KEY: 8 bytes, (US-ASCII) characters
+	 * 
+	 * CACH_PACK_KEY: 81 bytes, (US-ASCII) characters
+	 * 
+	 * CACH_PACK_INFO: byte array, variable length, max. length ? (TODO 1024?)
+	 */
 	static final String CREATE_CACH_PACK_TAB = "CREATE TABLE " + CACH_PACK_TAB
-			+ " (" + REPO_KEY + " CHAR(128), " + CACH_PACK_KEY + " CHAR(128), "
-			+ CACH_PACK_INFO + " TEXT);";
+			+ " (" + REPO_KEY + " CHAR(8), " + CACH_PACK_KEY + " CHAR(81), "
+			+ CACH_PACK_INFO + " BYTEA);";
 
+	/*
+	 * REPO_KEY: 8 bytes, (US-ASCII) characters
+	 * 
+	 * REF_KEY: characters, variable length, limit to 1000? (TODO ?)
+	 * 
+	 * REF_DATA: byte array, variable length, max. length ? (TODO ?)
+	 */
 	static final String CREATE_REF_TAB = "CREATE TABLE " + REF_TAB + " ("
-			+ REPO_KEY + " CHAR(128), " + REF_KEY + " CHAR(128), " + REF_DATA
-			+ " TEXT);";
+			+ REPO_KEY + " CHAR(8), " + REF_KEY + " VARCHAR(1000), " + REF_DATA
+			+ " BYTEA);";
 
+	/*
+	 * CHUNK_KEY: 59 bytes, (US-ASCII) characters
+	 * 
+	 * CHUNK_DATA: binary, variable length, large
+	 * 
+	 * CHUNK_IDX: binary, variable length, large
+	 * 
+	 * CHUNK_META: byte array, variable length, max. length ? (TODO 256?)
+	 */
 	static final String CREATE_CHUNK_TAB = "CREATE TABLE " + CHUNK_TAB + " ("
-			+ CHUNK_KEY + " CHAR(128), " + CHUNK_DATA + " TEXT, " + CHUNK_IDX
-			+ " TEXT, " + CHUNK_META + " TEXT);";
+			+ CHUNK_KEY + " CHAR(59), " + CHUNK_DATA + " BYTEA, " + CHUNK_IDX
+			+ " BYTEA, " + CHUNK_META + " BYTEA);";
 
+	/*
+	 * OBJ_IDX_KEY: 54 bytes, (US-ASCII) characters
+	 * 
+	 * CHUNK_KEY: short form, 45 bytes, (US-ASCII) characters
+	 * 
+	 * OBJ_INFO: byte array, variable length, max. length 34
+	 */
 	static final String CREATE_OBJ_IDX_TAB = "CREATE TABLE " + OBJ_IDX_TAB
-			+ " (" + OBJ_IDX_KEY + " CHAR(128), " + CHUNK_KEY + " CHAR(128), "
-			+ OBJ_INFO + " TEXT);";
+			+ " (" + OBJ_IDX_KEY + " CHAR(54), " + CHUNK_KEY + " CHAR(45), "
+			+ OBJ_INFO + " BYTEA);";
+
+	static final String SELECT_EXISTS_FROM_REPO_IDX = "SELECT 1 FROM "
+			+ REPO_IDX_TAB + " WHERE " + REPO_NAME + " = ?;";
+
+	static final String SELECT_REPO_KEY_FROM_REPO_IDX = "SELECT " + REPO_KEY
+			+ " FROM " + REPO_IDX_TAB + " WHERE " + REPO_NAME + " = ?;";
+
+	static final String INSERT_INTO_REPO_IDX = "INSERT INTO " + REPO_IDX_TAB
+			+ " (" + REPO_KEY + ", " + REPO_NAME + ") VALUES (?, ?);";
+
+	static final String SELECT_EXISTS_FROM_CHUNK_INFO = "SELECT 1 FROM "
+			+ CHUNK_INFO_TAB + " WHERE " + REPO_KEY + " = ? AND " + CHUNK_KEY
+			+ " = ?;";
+
+	static final String INSERT_INTO_CHUNK_INFO = "INSERT INTO "
+			+ CHUNK_INFO_TAB + " (" + REPO_KEY + ", " + CHUNK_KEY + ", "
+			+ CHUNK_INFO + ") VALUES " + "(?, ?, ?);";
+
+	static final String UPDATE_IN_CHUNK_INFO = "UPDATE " + CHUNK_INFO_TAB
+			+ " SET " + CHUNK_INFO + " = ? WHERE " + REPO_KEY + " = ? AND "
+			+ CHUNK_KEY + " = ?;";
+
+	static final String DELETE_FROM_CHUNK_INFO = "DELETE FROM "
+			+ CHUNK_INFO_TAB + " WHERE " + REPO_KEY + " = ? AND " + CHUNK_KEY
+			+ " = ?;";
+
+	static final String SELECT_EXISTS_FROM_CACH_PACK = "SELECT 1 FROM "
+			+ CACH_PACK_TAB + " WHERE " + REPO_KEY + " = ? AND "
+			+ CACH_PACK_KEY + " = ?;";
+
+	static final String SELECT_M_FROM_CACH_PACK = "SELECT " + CACH_PACK_INFO
+			+ " FROM " + CACH_PACK_TAB + " WHERE " + REPO_KEY + " = ?;";
+
+	static final String INSERT_INTO_CACH_PACK = "INSERT INTO " + CACH_PACK_TAB
+			+ " (" + REPO_KEY + ", " + CACH_PACK_KEY + ", " + CACH_PACK_INFO
+			+ ") VALUES " + "(?, ?, ?);";
+
+	static final String UPDATE_IN_CACH_PACK = "UPDATE " + CACH_PACK_TAB
+			+ " SET " + CACH_PACK_INFO + " = ? WHERE " + REPO_KEY + " = ? AND "
+			+ CACH_PACK_KEY + " = ?;";
+
+	static final String DELETE_FROM_CACH_PACK = "DELETE FROM " + CACH_PACK_TAB
+			+ " WHERE " + REPO_KEY + " = ? AND " + CACH_PACK_KEY + " = ?;";
+
+	static final String SELECT_EXISTS_FROM_REF = "SELECT 1 FROM " + REF_TAB
+			+ " WHERE " + REPO_KEY + " = ? AND " + REF_KEY + " = ?;";
+
+	static final String SELECT_FROM_REF = "SELECT " + REF_DATA + " FROM "
+			+ REF_TAB + " WHERE " + REPO_KEY + " = ? AND " + REF_KEY + " = ?;";
+
+	static final String SELECT_M_FROM_REF = "SELECT " + REF_KEY + ", "
+			+ REF_DATA + " FROM " + REF_TAB + " WHERE " + REPO_KEY + " = ?;";
+
+	static final String INSERT_INTO_REF = "INSERT INTO " + REF_TAB + " ("
+			+ REPO_KEY + ", " + REF_KEY + ", " + REF_DATA + ") VALUES "
+			+ "(?, ?, ?);";
+
+	static final String UPDATE_IN_REF = "UPDATE " + REF_TAB + " SET "
+			+ REF_DATA + " = ? WHERE " + REPO_KEY + " = ? AND " + REF_KEY
+			+ " = ?;";
+
+	static final String DELETE_FROM_REF = "DELETE FROM " + REF_TAB + " WHERE "
+			+ REPO_KEY + " = ? AND " + REF_KEY + " = ?;";
+
+	static final String SELECT_FROM_CHUNK = "SELECT " + CHUNK_DATA + ", "
+			+ CHUNK_IDX + ", " + CHUNK_META + " FROM " + CHUNK_TAB + " WHERE "
+			+ CHUNK_KEY + " = ?;";
+
+	static final String INSERT_INTO_CHUNK = "INSERT INTO " + CHUNK_TAB + " ("
+			+ CHUNK_KEY + ", " + CHUNK_DATA + ") VALUES (?, ?);";
+
+	static final String UPDATE_IN_CHUNK = "UPDATE " + CHUNK_TAB + " SET "
+			+ CHUNK_IDX + " = ?, " + CHUNK_META + " = ? WHERE " + CHUNK_KEY
+			+ " = ?;";
+
+	static final String DELETE_FROM_CHUNK = "DELETE FROM " + CHUNK_TAB
+			+ " WHERE " + CHUNK_KEY + " = ?;";
+
+	static final String SELECT_M_FROM_OBJ_IDX = "SELECT " + CHUNK_KEY + ", "
+			+ OBJ_INFO + " FROM " + OBJ_IDX_TAB + " WHERE " + OBJ_IDX_KEY
+			+ " = ?;";
+
+	static final String INSERT_INTO_OBJ_IDX = "INSERT INTO " + OBJ_IDX_TAB
+			+ " (" + OBJ_IDX_KEY + ", " + CHUNK_KEY + ", " + OBJ_INFO
+			+ ") VALUES (?, ?, ?);";
+
+	static final String DELETE_FROM_OBJ_IDX = "DELETE FROM " + OBJ_IDX_TAB
+			+ " WHERE " + OBJ_IDX_KEY + " = ? AND " + CHUNK_KEY + " = ?;";
 }

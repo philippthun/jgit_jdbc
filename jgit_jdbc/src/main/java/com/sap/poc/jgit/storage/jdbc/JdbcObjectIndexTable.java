@@ -3,17 +3,15 @@
  */
 package com.sap.poc.jgit.storage.jdbc;
 
-import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.decodeChunkKeyShort;
-import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.decodeObjInfo;
-import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeChunkKey;
-import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeChunkKeyShort;
-import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeObjIdxKey;
-import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeObjInfo;
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.decodeRowKey;
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeRowKey;
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeShortChunkKey;
 
+import java.io.UnsupportedEncodingException;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -65,24 +63,23 @@ public class JdbcObjectIndexTable extends JdbcSqlHelper implements
 			if (objects != null) {
 				for (final ObjectIndexKey objIdxKey : objects) {
 					conn = db.getConnection();
-					final Statement stmt = conn.createStatement();
-					stmt.execute(SELECT_M_FROM_OBJ_IDX(encodeObjIdxKey(objIdxKey)));
+					final PreparedStatement stmt = conn
+							.prepareStatement(SELECT_M_FROM_OBJ_IDX);
+					stmt.setString(1, encodeRowKey(objIdxKey));
+					stmt.execute();
 					final ResultSet resSet = stmt.getResultSet();
 					if (resSet != null) {
 						final Collection<ObjectInfo> objInfoList = new ArrayList<ObjectInfo>();
 						while (resSet.next()) {
-							final String sChunkKeyShort = resSet.getString(1);
-							final String sObjInfo = resSet.getString(2);
-							if (sChunkKeyShort != null
-									&& sChunkKeyShort.length() > 0
-									&& sObjInfo != null
-									&& sObjInfo.length() > 0)
-								objInfoList
-										.add(ObjectInfo.fromBytes(
-												ChunkKey.fromShortBytes(
-														objIdxKey,
-														decodeChunkKeyShort(sChunkKeyShort)),
-												decodeObjInfo(sObjInfo), -1));
+							final String sShortChunkKey = resSet.getString(1);
+							final byte[] objInfo = resSet.getBytes(2);
+							if (sShortChunkKey != null
+									&& sShortChunkKey.length() > 0
+									&& objInfo != null && objInfo.length > 0)
+								objInfoList.add(ObjectInfo.fromBytes(ChunkKey
+										.fromShortBytes(objIdxKey,
+												decodeRowKey(sShortChunkKey)),
+										objInfo, -1));
 						}
 						objInfoMap.put(objIdxKey, objInfoList);
 					}
@@ -90,6 +87,8 @@ public class JdbcObjectIndexTable extends JdbcSqlHelper implements
 				return objInfoMap;
 			}
 			throw new DhtException("Invalid parameter"); // TODO externalize
+		} catch (UnsupportedEncodingException e) {
+			throw new DhtException(e);
 		} catch (SQLException e) {
 			throw new DhtException(e);
 		} finally {
@@ -106,14 +105,19 @@ public class JdbcObjectIndexTable extends JdbcSqlHelper implements
 		try {
 			if (objId != null && info != null) {
 				conn = db.getConnection();
-				conn.createStatement().executeUpdate(
-						INSERT_INTO_OBJ_IDX(encodeObjIdxKey(objId),
-								encodeChunkKeyShort(info.getChunkKey()),
-								encodeObjInfo(info)));
+				final PreparedStatement stmt = conn
+						.prepareStatement(INSERT_INTO_OBJ_IDX);
+				stmt.setString(1, encodeRowKey(objId));
+				stmt.setString(2, encodeShortChunkKey(info.getChunkKey()));
+				stmt.setBytes(3, info.toBytes());
+				stmt.execute();
+				stmt.executeUpdate();
 				// TODO check result
 				return;
 			}
 			throw new DhtException("Invalid parameters"); // TODO externalize
+		} catch (UnsupportedEncodingException e) {
+			throw new DhtException(e);
 		} catch (SQLException e) {
 			throw new DhtException(e);
 		} finally {
@@ -130,13 +134,17 @@ public class JdbcObjectIndexTable extends JdbcSqlHelper implements
 		try {
 			if (objId != null && chunk != null) {
 				conn = db.getConnection();
-				conn.createStatement().executeUpdate(
-						DELETE_FROM_OBJ_IDX(encodeObjIdxKey(objId),
-								encodeChunkKey(chunk)));
+				final PreparedStatement stmt = conn
+						.prepareStatement(DELETE_FROM_OBJ_IDX);
+				stmt.setString(1, encodeRowKey(objId));
+				stmt.setString(2, encodeShortChunkKey(chunk));
+				stmt.executeUpdate();
 				// TODO check result
 				return;
 			}
 			throw new DhtException("Invalid parameters"); // TODO externalize
+		} catch (UnsupportedEncodingException e) {
+			throw new DhtException(e);
 		} catch (SQLException e) {
 			throw new DhtException(e);
 		} finally {

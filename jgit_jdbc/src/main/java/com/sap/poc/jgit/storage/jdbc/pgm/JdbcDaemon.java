@@ -68,11 +68,10 @@ class JdbcDaemon extends TextBuiltin {
 		final PackConfig packConfig = new PackConfig();
 
 		if (configFile != null) {
-			if (!configFile.exists()) {
+			if (!configFile.exists())
 				throw die(MessageFormat.format(
 						CLIText.get().configFileNotFound,
 						configFile.getAbsolutePath()));
-			}
 
 			final FileBasedConfig cfg = new FileBasedConfig(configFile,
 					FS.DETECTED);

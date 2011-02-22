@@ -3,16 +3,14 @@
  */
 package com.sap.poc.jgit.storage.jdbc;
 
-import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.decodeRefData;
-import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.decodeRefKey;
-import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeRefData;
-import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeRefKey;
-import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeRepoKey;
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.decodeRowKey;
+import static com.sap.poc.jgit.storage.jdbc.JdbcEnDecoder.encodeRowKey;
 
+import java.io.UnsupportedEncodingException;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
@@ -23,7 +21,6 @@ import org.eclipse.jgit.storage.dht.RefKey;
 import org.eclipse.jgit.storage.dht.RepositoryKey;
 import org.eclipse.jgit.storage.dht.spi.Context;
 import org.eclipse.jgit.storage.dht.spi.RefTable;
-import org.eclipse.jgit.storage.dht.spi.RefTransaction;
 
 public class JdbcRefTable extends JdbcSqlHelper implements RefTable {
 	private JdbcDatabase db;
@@ -43,21 +40,25 @@ public class JdbcRefTable extends JdbcSqlHelper implements RefTable {
 		try {
 			if (repository != null) {
 				conn = db.getConnection();
-				final Statement stmt = conn.createStatement();
-				stmt.execute(SELECT_M_FROM_REF(encodeRepoKey(repository)));
+				final PreparedStatement stmt = conn
+						.prepareStatement(SELECT_M_FROM_REF);
+				stmt.setString(1, encodeRowKey(repository));
+				stmt.execute();
 				final ResultSet resSet = stmt.getResultSet();
 				if (resSet != null)
 					while (resSet.next()) {
 						final String sRefKey = resSet.getString(1);
-						final String sRefData = resSet.getString(2);
+						final byte[] refData = resSet.getBytes(2);
 						if (sRefKey != null && sRefKey.length() > 0
-								&& sRefData != null && sRefData.length() > 0)
-							refMap.put(RefKey.fromBytes(decodeRefKey(sRefKey)),
-									RefData.fromBytes(decodeRefData(sRefData)));
+								&& refData != null && refData.length > 0)
+							refMap.put(RefKey.fromBytes(decodeRowKey(sRefKey)),
+									RefData.fromBytes(refData));
 					}
 				return refMap;
 			}
 			throw new DhtException("Invalid parameter"); // TODO externalize
+		} catch (UnsupportedEncodingException e) {
+			throw new DhtException(e);
 		} catch (SQLException e) {
 			throw new DhtException(e);
 		} finally {
@@ -66,105 +67,75 @@ public class JdbcRefTable extends JdbcSqlHelper implements RefTable {
 	}
 
 	@Override
-	public RefTransaction newTransaction(final RefKey refKey)
+	public boolean compareAndRemove(RefKey refKey, RefData oldData)
 			throws DhtException, TimeoutException {
-		if (refKey == null)
-			throw new DhtException("Invalid parameter"); // TODO externalize
-
-		final String sRefKey = encodeRefKey(refKey);
-		final String sRepoKey = encodeRepoKey(refKey.getRepositoryKey());
 		Connection conn = null;
-		RefData refData = null;
 
 		try {
+			// TODO compare
+
 			conn = db.getConnection();
-			final Statement stmt = conn.createStatement();
-			stmt.execute(SELECT_FROM_REF(sRepoKey, sRefKey));
-			final ResultSet resSet = stmt.getResultSet();
-			if (resSet != null && resSet.next()) {
-				// Exists
-				final String sRefData = resSet.getString(1);
-				if (sRefData != null && sRefData.length() > 0)
-					refData = RefData.fromBytes(decodeRefData(sRefData));
-			}
+			final PreparedStatement stmt = conn
+					.prepareStatement(DELETE_FROM_REF);
+			stmt.setString(1, encodeRowKey(refKey.getRepositoryKey()));
+			stmt.setString(2, encodeRowKey(refKey));
+			stmt.executeUpdate();
+			// TODO check result
+			return true;
+		} catch (UnsupportedEncodingException e) {
+			throw new DhtException(e);
 		} catch (SQLException e) {
 			throw new DhtException(e);
 		} finally {
 			closeConnection(conn);
 		}
+	}
 
-		final RefData oldData;
-		if (refData != null)
-			oldData = refData;
-		else
-			oldData = RefData.NONE;
+	@Override
+	public boolean compareAndPut(RefKey refKey, RefData oldData, RefData newData)
+			throws DhtException, TimeoutException {
+		Connection conn = null;
 
-		return new RefTransaction() {
-			@Override
-			public RefData getOldData() {
-				return oldData;
-			}
+		try {
+			// TODO compare
 
-			@Override
-			public boolean compareAndPut(final RefData newData)
-					throws DhtException {
-				Connection conn = null;
-
-				try {
-					// TODO compare
-
-					if (newData != null) {
-						final String sRefData = encodeRefData(newData);
-						conn = db.getConnection();
-						final Statement stmt = conn.createStatement();
-						stmt.execute(SELECT_EXISTS_FROM_REF(sRepoKey, sRefKey));
-						final ResultSet resSet = stmt.getResultSet();
-						if (resSet != null && resSet.next())
-							// Exists -> update
-							conn.createStatement().executeUpdate(
-									UPDATE_IN_REF(sRepoKey, sRefKey, sRefData));
-						else
-							// Not exists -> insert
-							conn.createStatement()
-									.executeUpdate(
-											INSERT_INTO_REF(sRepoKey, sRefKey,
-													sRefData));
-						// TODO check result
-						return true;
-					} else {
-						throw new DhtException("Invalid parameter"); // TODO
-																		// externalize
-					}
-				} catch (SQLException e) {
-					throw new DhtException(e);
-				} finally {
-					closeConnection(conn);
+			final String sRefKey = encodeRowKey(refKey);
+			final String sRepoKey = encodeRowKey(refKey.getRepositoryKey());
+			if (newData != null) {
+				conn = db.getConnection();
+				PreparedStatement stmt = conn
+						.prepareStatement(SELECT_EXISTS_FROM_REF);
+				stmt.setString(1, sRepoKey);
+				stmt.setString(2, sRefKey);
+				stmt.execute();
+				final ResultSet resSet = stmt.getResultSet();
+				if (resSet != null && resSet.next()) {
+					// Exists -> update
+					stmt = conn.prepareStatement(UPDATE_IN_REF);
+					stmt.setBytes(1, newData.toBytes());
+					stmt.setString(2, sRepoKey);
+					stmt.setString(3, sRefKey);
+					stmt.executeUpdate();
+				} else {
+					// Not exists -> insert
+					stmt = conn.prepareStatement(INSERT_INTO_REF);
+					stmt.setString(1, sRepoKey);
+					stmt.setString(2, sRefKey);
+					stmt.setBytes(3, newData.toBytes());
+					stmt.executeUpdate();
 				}
+				// TODO check result
+				return true;
+			} else {
+				throw new DhtException("Invalid parameter"); // TODO
+																// externalize
 			}
-
-			@Override
-			public boolean compareAndRemove() throws DhtException,
-					TimeoutException {
-				Connection conn = null;
-
-				try {
-					// TODO compare
-
-					conn = db.getConnection();
-					conn.createStatement().executeUpdate(
-							DELETE_FROM_REF(sRepoKey, sRefKey));
-					// TODO check result
-					return true;
-				} catch (SQLException e) {
-					throw new DhtException(e);
-				} finally {
-					closeConnection(conn);
-				}
-			}
-
-			@Override
-			public void abort() {
-			}
-		};
+		} catch (UnsupportedEncodingException e) {
+			throw new DhtException(e);
+		} catch (SQLException e) {
+			throw new DhtException(e);
+		} finally {
+			closeConnection(conn);
+		}
 	}
 }
